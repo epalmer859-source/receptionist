@@ -1,0 +1,27 @@
+{
+  "name": "aigent-receptionist",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Aigent OS — AI receptionist API. One brain (system prompt + capture_lead tool) behind POST /api/chat, reusable across web chat, SMS, and voice.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test:chat": "node scripts/test-chat.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.104.1",
+    "next": "^15.5.19",
+    "react": "19.0.0",
+    "react-dom": "19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "eslint": "^9.18.0",
+    "eslint-config-next": "^15.5.19",
+    "typescript": "^5.7.3"
+  }
+}
