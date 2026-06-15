@@ -31,7 +31,90 @@ const VALID_CHANNELS: Channel[] = ["web", "sms", "voice"];
 type ChatRequest = {
   messages?: unknown;
   channel?: unknown;
+  /**
+   * The lead already captured earlier this conversation, echoed back by the
+   * client (the brain is stateless per call). Its presence is how the route
+   * knows a lead exists so it can fire the closer in code on a closing reply —
+   * no second model call, no dependence on the model choosing to end.
+   */
+  captured?: unknown;
 };
+
+/** What the client echoes back so the route can build the closer in code. */
+type CapturedLead = { name: string | null; phone: string | null };
+
+function parseCaptured(value: unknown): CapturedLead | null {
+  if (typeof value !== "object" || value === null) return null;
+  const c = value as Record<string, unknown>;
+  const name = typeof c.name === "string" ? c.name : null;
+  const phone = typeof c.phone === "string" ? c.phone : null;
+  if (!name && !phone) return null;
+  return { name, phone };
+}
+
+/**
+ * Does this message clearly mean "I'm done, nothing more"? Used ONLY after a
+ * lead is captured, to fire the closer in code. Deliberately conservative: a
+ * message containing a question ("?") is never treated as a close.
+ */
+function isClosingSignal(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .trim()
+    .replace(/[.!,]+$/g, "")
+    .trim();
+  if (!t || t.includes("?")) return false;
+
+  const exact = new Set([
+    "no",
+    "nope",
+    "nah",
+    "naw",
+    "n",
+    "no thanks",
+    "no thank you",
+    "nothing",
+    "nothing else",
+    "that's it",
+    "thats it",
+    "that's all",
+    "thats all",
+    "that's everything",
+    "thats everything",
+    "i'm good",
+    "im good",
+    "we're good",
+    "were good",
+    "all good",
+    "all set",
+    "i'm all set",
+    "im all set",
+    "good for now",
+    "that'll do",
+    "thatll do",
+    "thanks",
+    "thank you",
+    "thx",
+    "ty",
+    "cool thanks",
+    "ok thanks",
+    "okay thanks",
+    "great thanks",
+    "perfect thanks",
+    "no that's it",
+    "no thats it",
+    "no that's all",
+    "no thats all",
+    "no im good",
+    "no i'm good",
+  ]);
+  if (exact.has(t)) return true;
+
+  // Short negative/closing openers ("no that's all I need", "nope we're good").
+  if (/^(no|nope|nah|naw)\b/.test(t) && t.length <= 40) return true;
+
+  return false;
+}
 
 /**
  * The single, exact closing line shown after a lead is captured. Built in code
@@ -110,12 +193,24 @@ export async function POST(req: NextRequest) {
       ? (body.channel as Channel)
       : "web";
 
+  // CODE-DRIVEN CLOSE: once a lead has been captured (echoed back as `captured`),
+  // the moment the customer's latest message is a closing signal we send the
+  // hard-coded closer directly — no model call, so it can NEVER be skipped by
+  // the model failing to "decide" to end. This is the reliability fix.
+  const captured = parseCaptured(body.captured);
+  const lastUser = [...body.messages]
+    .reverse()
+    .find((m) => m.role === "user");
+  if (captured && lastUser && isClosingSignal(lastUser.content)) {
+    return NextResponse.json({
+      ok: true,
+      reply: buildClosingLine(captured.name, captured.phone),
+      lead: null,
+    });
+  }
+
   try {
-    const { reply: modelReply, lead, end } = await runReceptionist(
-      body.messages,
-      channel
-    );
-    let reply = modelReply;
+    const { reply, lead } = await runReceptionist(body.messages, channel);
 
     if (lead) {
       // Geocode the vehicle's current location for the map pin (best-effort).
@@ -156,15 +251,6 @@ export async function POST(req: NextRequest) {
       } catch (dbErr) {
         console.error("Lead persist failed (continuing):", dbErr);
       }
-    }
-
-    // The closer is hard-coded, not improvised by the model, so it's always
-    // identical and can't drift. It fires only when the model calls
-    // end_conversation (the customer is done) — NOT on the capture turn — so it
-    // appears exactly once, at the true end, after "any other questions?", and
-    // is never replayed on top of a follow-up question.
-    if (end) {
-      reply = buildClosingLine(end.customerName, end.phone);
     }
 
     return NextResponse.json({ ok: true, reply, lead });

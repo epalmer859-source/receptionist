@@ -50,7 +50,13 @@ export default function TestChatPage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history, channel: "web" }),
+        body: JSON.stringify({
+          messages: history,
+          channel: "web",
+          // Echo the captured lead back so the route can fire the closer in
+          // code on a closing reply (the brain is stateless per call).
+          captured: lead ? { name: lead.name, phone: lead.phone } : null,
+        }),
       });
 
       const data = (await res.json()) as ChatResponse;
