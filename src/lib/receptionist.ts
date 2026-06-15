@@ -35,7 +35,11 @@ export type Urgency = "emergency" | "soon" | "flexible";
 export type CaptureLeadInput = {
   customer_name: string;
   phone?: string;
+  /** Where the vehicle is RIGHT NOW (its current location), not a home address. */
   address: string;
+  vehicle_year?: string;
+  vehicle_make: string;
+  vehicle_model: string;
   urgency: Urgency;
   summary: string;
   callback?: string;
@@ -50,9 +54,13 @@ export type CaptureLeadInput = {
 export type Lead = {
   name: string;
   phone: string | null;
+  /** The vehicle's CURRENT location (roadside, lot, driveway, etc.). */
   address: string;
   lat: number | null;
   lng: number | null;
+  vehicleYear: string | null;
+  vehicleMake: string;
+  vehicleModel: string;
   channel: Channel;
   urgency: Urgency;
   status: "new" | "contacted" | "scheduled";
@@ -69,9 +77,10 @@ export type ChatMessage = { role: "user" | "assistant"; content: string };
 export const captureLeadTool: Anthropic.Tool = {
   name: "capture_lead",
   description:
-    "Record a qualified service lead once enough detail has been gathered. " +
-    "Call this exactly once, when you have the customer's name, service " +
-    "address, a clear description of the problem, and an urgency level.",
+    "Record a qualified mobile-mechanic service lead once enough detail has " +
+    "been gathered. Call this exactly once, when you have the customer's name, " +
+    "the vehicle's current location, the vehicle make and model, a clear " +
+    "description of what's wrong, and an urgency level.",
   input_schema: {
     type: "object",
     properties: {
@@ -81,7 +90,26 @@ export const captureLeadTool: Anthropic.Tool = {
         description:
           "Best contact number. Use the channel's number if not stated.",
       },
-      address: { type: "string", description: "Full service address." },
+      address: {
+        type: "string",
+        description:
+          "Where the vehicle is RIGHT NOW — its current location, NOT a home " +
+          "address. May be a parking lot, roadside, highway shoulder, or a " +
+          "workplace. Capture enough for the mechanic to actually find it " +
+          "(e.g. 'I-575 N shoulder just past the Riverstone Pkwy exit').",
+      },
+      vehicle_year: {
+        type: "string",
+        description: "Vehicle model year, e.g. '2014'. Empty if not given.",
+      },
+      vehicle_make: {
+        type: "string",
+        description: "Vehicle make, e.g. 'Chevrolet', 'Toyota', 'Ford'.",
+      },
+      vehicle_model: {
+        type: "string",
+        description: "Vehicle model, e.g. 'Silverado', 'Camry', 'F-150'.",
+      },
       urgency: {
         type: "string",
         enum: ["emergency", "soon", "flexible"],
@@ -89,8 +117,8 @@ export const captureLeadTool: Anthropic.Tool = {
       summary: {
         type: "string",
         description:
-          "One sentence, in your words, describing the problem and any key " +
-          "detail (e.g. infant at home).",
+          "One sentence, in your words, describing the symptoms and any key " +
+          "detail (e.g. 'no-start, stranded on the highway shoulder at night').",
       },
       callback: {
         type: "string",
@@ -99,7 +127,14 @@ export const captureLeadTool: Anthropic.Tool = {
           "Empty if not given.",
       },
     },
-    required: ["customer_name", "address", "urgency", "summary"],
+    required: [
+      "customer_name",
+      "address",
+      "vehicle_make",
+      "vehicle_model",
+      "urgency",
+      "summary",
+    ],
   },
 };
 
@@ -129,27 +164,30 @@ export function buildSystemPrompt(channel: Channel): string {
     ? ` Our phone number is ${business.phone.display}.`
     : "";
 
-  return `You are the receptionist for ${business.name}, serving ${business.primaryServiceArea}. ${business.longDescription}${phoneLine}
+  return `You are the dispatcher for ${business.name}, a MOBILE MECHANIC serving ${business.primaryServiceArea}. ${business.longDescription}${phoneLine}
 Hours: ${formatHours()}.
 
-Your job: have a short, warm, natural conversation with whoever messages in, and gather everything needed to get them on the schedule. You are not a chatbot reading a script — you sound like a competent person who works here.
+This is a mobile mechanic: the mechanic drives out to wherever the customer's vehicle is — a driveway, a parking lot, the roadside, a workplace. The customer does NOT come to a shop.
+
+Your job: have a short, warm, natural conversation with whoever messages in, and gather everything dispatch needs to send a mechanic to the vehicle. You are not a chatbot reading a script — you sound like a competent dispatcher who works here.
 
 Collect, conversationally (don't interrogate, don't ask for everything at once):
   - the customer's name
   - their phone number (if not already known from the channel)
-  - the service address
-  - what's going on (the problem, in their words)
+  - WHERE THE VEHICLE IS RIGHT NOW — this is the vehicle's current location, NOT a home address. It might be a parking lot, the roadside, a highway shoulder, or a workplace. Ask "where's the vehicle right now?" and get something a mechanic could actually find.
+  - the vehicle's YEAR, MAKE, and MODEL
+  - what's wrong (the symptoms, in the customer's own words)
   - how urgent it is
   - when's a good time to reach them (callback preference)
 
-Urgency rubric:
-  - emergency  → safety, active damage, someone stranded or vulnerable (infants, elderly, medical), or a total loss of something essential in harsh conditions. e.g. "no AC, 84°, baby at home" or "broken down on the shoulder of the highway at night."
-  - soon       → broken or degraded but not dangerous; wants it handled this week.
-  - flexible   → maintenance, routine service, quotes, no current problem.
+Urgency rubric (mobile mechanic):
+  - emergency  → stranded, roadside, unsafe, blocking traffic, or broken down away from home — especially at night or on a highway. e.g. "won't restart, dead on the shoulder of I-575."
+  - soon       → won't start or undrivable but in a safe spot (driveway, home, lot); wants it handled today.
+  - flexible   → drivable: routine maintenance, odd noises, soft brakes, quotes, "sometime this week."
 
-When you have name + address + a clear problem + urgency, call capture_lead with the structured details, then warmly confirm to the customer that the team will follow up (reference their callback preference if given). Do NOT promise a specific appointment time — you capture the request; a human or the scheduler confirms.
+When you have name + vehicle location + vehicle make and model + a clear description of the problem + urgency, call capture_lead with the structured details, then warmly confirm that dispatch will follow up (reference their callback preference if given). Do NOT promise a specific arrival time — you capture the request; dispatch confirms timing.
 
-If they only want a quote or have no real issue, that's fine — capture it as flexible. Never invent details. If something's missing and they go quiet, ask once more for the single most important missing piece (usually the address).
+If they only want a quote or have no real issue, that's fine — capture it as flexible. Never invent a vehicle, a location, or any detail. If something's missing and they go quiet, ask once more for the single most important missing item (usually the vehicle's location, or what the car is doing).
 
 Tone: warm, competent, and efficient. Keep replies short — this is a ${channel} conversation, not email.`;
 }
@@ -169,6 +207,9 @@ export function buildLead(
     address: input.address,
     lat: null,
     lng: null,
+    vehicleYear: input.vehicle_year?.trim() || null,
+    vehicleMake: input.vehicle_make,
+    vehicleModel: input.vehicle_model,
     channel,
     urgency: input.urgency,
     status: "new",

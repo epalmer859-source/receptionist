@@ -6,10 +6,13 @@
  * src/lib/receptionist.ts → buildSystemPrompt). To run the brain for a
  * different business, edit only this file.
  *
- * NOTE: The values below describe the DEMO pilot tenant ("Summit Air
- * Solutions", a fictional HVAC company). Replace them with the real
- * business's verified information before going live — never publish
- * unverified claims (hours, phone, service area).
+ * This tenant is a MOBILE MECHANIC — an auto-repair business where the
+ * mechanic drives to wherever the customer's vehicle is (driveway, parking
+ * lot, roadside, workplace) rather than the customer coming to a shop.
+ *
+ * ⚠️ PLACEHOLDERS: the fields marked `TODO(tenant)` below are skeleton values,
+ * NOT a real business. Fill them in with the real, verified details before
+ * going live — never publish unverified claims (name, hours, phone, area).
  * =============================================================================
  */
 
@@ -21,27 +24,33 @@ export type BusinessHours = {
 
 export const business = {
   /** ----- Identity ----- */
-  name: "Summit Air Solutions",
-  primaryServiceArea: "the north-metro Atlanta area",
+  // TODO(tenant): real business name. Do not use a placeholder in production.
+  name: "TODO: Mobile mechanic business name",
+  // TODO(tenant): the geographic area the mechanic will drive to.
+  primaryServiceArea: "TODO: primary service area (e.g. the greater Austin, TX area)",
+  // TODO(tenant): one-line description of the mobile mechanic service.
   longDescription:
-    "Summit Air Solutions is a same-day HVAC company serving the north-metro Atlanta area. We handle heating and cooling repairs, system replacements, and routine maintenance, with a focus on getting customers comfortable again fast.",
+    "TODO: one-line description — e.g. a mobile mechanic that comes to the customer's vehicle for on-the-spot diagnostics and repairs, from dead batteries and no-starts to brakes and routine maintenance.",
 
   /** ----- Contact ----- */
   phone: {
-    /** Human-readable, surfaced to customers in the conversation. */
-    display: "(770) 555-0100",
-    /** E.164 for tel: links. */
-    e164: "+17705550100",
+    // TODO(tenant): real, verified dispatch number shown to customers.
+    display: "TODO: (555) 555-0000",
+    // TODO(tenant): same number in E.164 for tel: links.
+    e164: "TODO: +15555550000",
   },
 
-  /** Business hours, used in the system prompt. */
+  /**
+   * Business hours, used in the system prompt.
+   * TODO(tenant): set the real dispatch hours. These are placeholder defaults.
+   */
   hours: [
     { day: "Monday", opens: "07:00", closes: "19:00" },
     { day: "Tuesday", opens: "07:00", closes: "19:00" },
     { day: "Wednesday", opens: "07:00", closes: "19:00" },
     { day: "Thursday", opens: "07:00", closes: "19:00" },
     { day: "Friday", opens: "07:00", closes: "19:00" },
-    { day: "Saturday", opens: "08:00", closes: "16:00" },
+    { day: "Saturday", opens: "08:00", closes: "17:00" },
     { day: "Sunday", opens: null, closes: null },
   ] as BusinessHours[],
 } as const;
