@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
       : "web";
 
   try {
-    const { reply: modelReply, lead } = await runReceptionist(
+    const { reply: modelReply, lead, end } = await runReceptionist(
       body.messages,
       channel
     );
@@ -156,13 +156,15 @@ export async function POST(req: NextRequest) {
       } catch (dbErr) {
         console.error("Lead persist failed (continuing):", dbErr);
       }
+    }
 
-      // The closer is hard-coded, not improvised by the model: once a lead is
-      // captured it ALWAYS ends with this exact line so it can't drift or be
-      // skipped. Applies to partial (needsReview) captures too — they still
-      // got captured, so they still get the same close. This replaces the
-      // model's final reply; nothing model-generated is appended after it.
-      reply = buildClosingLine(lead.name, lead.phone);
+    // The closer is hard-coded, not improvised by the model, so it's always
+    // identical and can't drift. It fires only when the model calls
+    // end_conversation (the customer is done) — NOT on the capture turn — so it
+    // appears exactly once, at the true end, after "any other questions?", and
+    // is never replayed on top of a follow-up question.
+    if (end) {
+      reply = buildClosingLine(end.customerName, end.phone);
     }
 
     return NextResponse.json({ ok: true, reply, lead });

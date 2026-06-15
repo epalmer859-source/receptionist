@@ -80,10 +80,11 @@ export type ChatMessage = { role: "user" | "assistant"; content: string };
 export const captureLeadTool: Anthropic.Tool = {
   name: "capture_lead",
   description:
-    "Record a qualified mobile-mechanic service lead once enough detail has " +
-    "been gathered. Call this exactly once, when you have the customer's name, " +
-    "the vehicle's current location, the vehicle make and model, a clear " +
-    "description of what's wrong, and an urgency level.",
+    "Record a qualified mobile-mechanic service lead. Call this exactly once, " +
+    "as soon as you have the customer's name, a SPECIFIC dispatchable address " +
+    "where the vehicle is, a clear description of what's wrong, and an urgency " +
+    "level. Vehicle year/make/model are OPTIONAL — capture without them if the " +
+    "customer doesn't know. NEVER call this without a specific, findable address.",
   input_schema: {
     type: "object",
     properties: {
@@ -96,10 +97,12 @@ export const captureLeadTool: Anthropic.Tool = {
       address: {
         type: "string",
         description:
-          "Where the vehicle is RIGHT NOW — its current location, NOT a home " +
-          "address. May be a parking lot, roadside, highway shoulder, or a " +
-          "workplace. Capture enough for the mechanic to actually find it " +
-          "(e.g. 'I-575 N shoulder just past the Riverstone Pkwy exit').",
+          "A SPECIFIC, dispatchable location of the vehicle RIGHT NOW that the " +
+          "mechanic could actually drive to — a street address, or a clearly " +
+          "identified spot like 'the Kroger on Old Hwy 5' or 'I-575 N at the " +
+          "Riverstone Pkwy exit'. NOT acceptable: 'my house', 'on the road', " +
+          "'a parking lot', 'somewhere'. If you don't have something findable, " +
+          "do NOT call this tool — keep politely asking for the address.",
       },
       vehicle_year: {
         type: "string",
@@ -126,7 +129,7 @@ export const captureLeadTool: Anthropic.Tool = {
         description:
           "One sentence, in your words, describing the symptoms and any key " +
           "detail (e.g. 'no-start, stranded on the highway shoulder at night'). " +
-          "If location or vehicle is unknown, note that here too.",
+          "If the vehicle make/model is unknown, note that here too.",
       },
       callback: {
         type: "string",
@@ -138,11 +141,39 @@ export const captureLeadTool: Anthropic.Tool = {
         type: "boolean",
         description:
           "Set true when you had to capture with a gap a human must close — " +
-          "e.g. no findable vehicle location, or an unknown make/model. " +
-          "False for a complete, dispatchable lead.",
+          "e.g. an unknown vehicle make/model. False for a complete lead.",
       },
     },
     required: ["customer_name", "address", "urgency", "summary"],
+  },
+};
+
+/**
+ * The `end_conversation` tool — the model calls this once the customer has no
+ * more questions (AFTER a lead was captured) to signal the conversation is over.
+ * The route responds by sending the single hard-coded closing line, so the
+ * closer is reliable and identical but never premature or repeated.
+ */
+export const endConversationTool: Anthropic.Tool = {
+  name: "end_conversation",
+  description:
+    "Call this to END the conversation, ONLY after a lead has already been " +
+    "captured AND the customer has no more questions. Do NOT write your own " +
+    "goodbye — the system sends the final closing line. Provide the customer's " +
+    "name and phone so the closer can address them.",
+  input_schema: {
+    type: "object",
+    properties: {
+      customer_name: {
+        type: "string",
+        description: "The customer's name, for the closing line.",
+      },
+      phone: {
+        type: "string",
+        description: "The customer's contact number, if known. Empty if not.",
+      },
+    },
+    required: ["customer_name"],
   },
 };
 
@@ -168,13 +199,11 @@ function formatHours(): string {
  * from the central business config so the same brain works for any tenant.
  */
 export function buildSystemPrompt(channel: Channel): string {
-  const phoneLine = business.phone?.display
-    ? ` Our phone number is ${business.phone.display}.`
-    : "";
-
   const mechanic = business.mechanicName?.trim() || "the mechanic";
 
-  return `You are the dispatcher for ${business.name}, a MOBILE MECHANIC serving ${business.primaryServiceArea}. ${business.longDescription}${phoneLine}
+  // The mechanic's phone is intentionally NOT disclosed to customers — dispatch
+  // contacts them, not the other way around.
+  return `You are the dispatcher for ${business.name}, a MOBILE MECHANIC serving ${business.primaryServiceArea}. ${business.longDescription}
 Hours: ${formatHours()}.
 
 This is a mobile mechanic: the mechanic drives out to wherever the customer's vehicle is — a driveway, a parking lot, the roadside, a workplace. The customer does NOT come to a shop.
@@ -187,26 +216,30 @@ Only redirect when they CLEARLY reference a prior service relationship with this
 Collect, conversationally (don't interrogate, don't ask for everything at once):
   - the customer's name
   - their phone number (if not already known from the channel)
-  - WHERE THE VEHICLE IS RIGHT NOW — this is the vehicle's current location, NOT a home address. It might be a parking lot, the roadside, a highway shoulder, or a workplace. Ask "where's the vehicle right now?" and get something a mechanic could actually find.
-  - the vehicle's YEAR, MAKE, and MODEL
+  - WHERE THE VEHICLE IS RIGHT NOW — a SPECIFIC, dispatchable location (see below)
   - what's wrong (the symptoms, in the customer's own words)
   - how urgent it is
+  - the vehicle's year, make, and model (nice to have, but optional)
   - when's a good time to reach them (callback preference)
 
-Vehicle details: push gently for the year/make/model — if they're not sure, suggest the sticker inside the driver's door jamb or the registration. But if the customer genuinely can't give them, DON'T loop on it: capture the lead with the phone, location, and symptoms you do have, leave make/model empty, and set needs_review=true so a human can confirm the vehicle.
+TWO THINGS ARE REQUIRED before you can capture a lead: the customer's NAME and a SPECIFIC, DISPATCHABLE ADDRESS. Politely insist on both — "I just need a name and an address so we can get someone out to you." The address must be somewhere the mechanic could actually drive to: a street address, or a clearly identified spot ("the Kroger on Old Hwy 5", "I-575 north at the Riverstone exit"). NOT good enough: "my house", "on the road", "a parking lot", "somewhere". If what they give isn't findable, warmly keep asking until it is — do NOT capture_lead without a real address, ever. There is no exception for this; without a findable address there is no lead.
 
-No-location escape hatch: the location is the one thing dispatch truly needs. Ask for it, and if it's vague, try ONCE more for something findable (a cross-street, a landmark, a business name). If after about two honest attempts you still can't get a findable location, do NOT keep looping — capture what you have (name + phone + symptoms), put a note like "location unclear, customer may be stranded" in the address field, set needs_review=true, and tell the caller a human will call them right back to pin it down.
+Vehicle details — stay EASYGOING: ask once for the year/make/model, and if they're not sure suggest the sticker in the driver's door jamb or the registration. But if they don't know, that's totally fine — capture without it, leave make/model empty, set needs_review=true, and DON'T nag. Never invent a vehicle.
 
 Urgency rubric (mobile mechanic):
   - emergency  → stranded, roadside, unsafe, blocking traffic, or broken down away from home — especially at night or on a highway. e.g. "won't restart, dead on the shoulder of I-575."
   - soon       → won't start or undrivable but in a safe spot (driveway, home, lot); wants it handled today.
   - flexible   → drivable: routine maintenance, odd noises, soft brakes, quotes, "sometime this week."
 
-Urgency — ask AT MOST ONCE. Don't interrogate about it. If the customer answers vaguely ("idk", "just fix it", "I want it fixed bro") or shows any impatience, do NOT re-ask — INFER a reasonable urgency from what they've already told you (a drivable car with a recurring or ongoing issue → soon; stranded, roadside, or unsafe → emergency; routine maintenance or a quote → flexible) and move straight to capturing. Never re-ask a question the customer already answered or deflected. Impatience is a signal to wrap up and capture, not to probe further.
+Urgency — ask AT MOST ONCE. Don't interrogate about it. If the customer answers vaguely ("idk", "just fix it", "I want it fixed bro") or shows any impatience, do NOT re-ask — INFER a reasonable urgency from what they've already told you (a drivable car with a recurring or ongoing issue → soon; stranded, roadside, or unsafe → emergency; routine maintenance or a quote → flexible) and move on. Never re-ask a question the customer already answered or deflected. Impatience is a signal to wrap up, not to probe further.
 
-When you have enough to dispatch — name + a vehicle location + a clear description of the problem + urgency (vehicle make/model too whenever you can get them) — call capture_lead with the structured details, then warmly confirm that dispatch will follow up (reference their callback preference if given). Do NOT promise a specific arrival time — you capture the request; dispatch confirms timing.
+PRICE / QUOTE QUESTIONS: if the customer asks what something costs ("what's an alternator cost?"), do NOT ignore it and do NOT invent or estimate a number. Say plainly that you can't quote a price, but ${mechanic} will go over the cost with them when he reaches out — then continue gathering the name + address (or, if you've already captured, just answer and carry on). Never promise a specific price or a specific arrival time.
 
-If they only want a quote or have no real issue, that's fine — capture it as flexible. Never invent a vehicle, a location, or any detail. If something's missing and they go quiet, ask once more for the single most important missing item (usually the vehicle's location, or what the car is doing).
+CAPTURING AND CLOSING — follow this order:
+  1. Once you have the name + a specific address + a clear problem + urgency, call capture_lead exactly ONCE (include make/model only if known). Do NOT call it again later in the same conversation.
+  2. After capturing, do NOT say goodbye. Briefly confirm you've got their info and that ${mechanic} will be in touch, then ASK if they have any other questions.
+  3. Answer whatever they ask next (e.g. a price question, per the rule above). Keep helping until they're done.
+  4. When the customer has no more questions (or clearly wants to wrap up), call end_conversation with their name and phone. Do NOT write your own closing line — the system sends the final sign-off. Only call end_conversation after a lead has been captured.
 
 Tone: warm, competent, and efficient. Keep replies short — this is a ${channel} conversation, not email.`;
 }
@@ -240,21 +273,30 @@ export function buildLead(
   };
 }
 
+/** The customer-identifying fields the closer needs, from `end_conversation`. */
+export type ConversationEnd = { customerName: string; phone: string | null };
+
 /** The result of one receptionist turn. */
 export type ReceptionistResult = {
   /** The assistant's text reply to send back to the customer. */
   reply: string;
   /** The captured Lead, if `capture_lead` fired this turn; otherwise null. */
   lead: Lead | null;
+  /**
+   * Set when `end_conversation` fired this turn — the customer is done, so the
+   * route should send the final hard-coded closing line. Null otherwise.
+   */
+  end: ConversationEnd | null;
 };
 
 /**
  * Run one turn of the receptionist over a conversation.
  *
- * Calls Claude with the system prompt and the `capture_lead` tool. If the
- * model fires the tool, we build the Lead, feed a tool_result back, and let the
- * model produce its confirmation reply — so the caller always gets clean
- * assistant text plus the Lead (when one was captured).
+ * Calls Claude with the system prompt and two tools. `capture_lead` builds and
+ * returns the Lead (the route persists it and the model confirms + asks if
+ * there's anything else). `end_conversation` signals the customer is done, so
+ * the route can send the single hard-coded closer — reliable and identical, but
+ * never premature or repeated.
  */
 export async function runReceptionist(
   messages: ChatMessage[],
@@ -263,6 +305,7 @@ export async function runReceptionist(
 ): Promise<ReceptionistResult> {
   const system = buildSystemPrompt(channel);
   const convo = toConvo(messages);
+  const tools = [captureLeadTool, endConversationTool];
 
   const apiMessages: Anthropic.MessageParam[] = messages.map((m) => ({
     role: m.role,
@@ -275,7 +318,7 @@ export async function runReceptionist(
     thinking: { type: "disabled" },
     output_config: { effort: "low" },
     system,
-    tools: [captureLeadTool],
+    tools,
     messages: apiMessages,
   });
 
@@ -284,11 +327,25 @@ export async function runReceptionist(
   );
 
   if (!toolUse) {
-    return { reply: textOf(first), lead: null };
+    return { reply: textOf(first), lead: null, end: null };
+  }
+
+  // The customer is done — hand the closer back to the route to send verbatim.
+  if (toolUse.name === "end_conversation") {
+    const input = toolUse.input as { customer_name?: string; phone?: string };
+    return {
+      reply: textOf(first),
+      lead: null,
+      end: {
+        customerName: input.customer_name ?? "",
+        phone: input.phone?.trim() || null,
+      },
+    };
   }
 
   // The model captured a lead. Build it, then send a tool_result so the model
-  // can produce its warm confirmation to the customer.
+  // can confirm and ask if there's anything else (NOT a goodbye — the closer is
+  // sent later, when end_conversation fires).
   const lead = buildLead(toolUse.input as CaptureLeadInput, channel, convo);
 
   const followUp = await client.messages.create({
@@ -297,7 +354,7 @@ export async function runReceptionist(
     thinking: { type: "disabled" },
     output_config: { effort: "low" },
     system,
-    tools: [captureLeadTool],
+    tools,
     messages: [
       ...apiMessages,
       { role: "assistant", content: first.content },
@@ -317,7 +374,7 @@ export async function runReceptionist(
   // Prefer any text the model produced alongside the tool call; otherwise use
   // the confirmation it generates after the tool_result.
   const reply = textOf(first) || textOf(followUp);
-  return { reply, lead };
+  return { reply, lead, end: null };
 }
 
 /** Concatenate the text blocks of a response into a single string. */
