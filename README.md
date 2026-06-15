@@ -61,9 +61,10 @@ npm run dev                     # http://localhost:3000
   captured lead — it just skips persistence (so the dashboard list will be
   empty). Point `DATABASE_URL` at any Postgres and run
   `npx prisma migrate deploy` to persist locally.
-- `npm run build` runs `prisma migrate deploy` and therefore needs a real
-  `DATABASE_URL`. To build the app without a database (e.g. CI smoke test) use
-  `npm run build:app` (`prisma generate && next build`).
+- `npm run build` is `prisma generate && next build` — no database needed.
+  Migrations run at **start** (`prisma migrate deploy && next start`), because
+  Railway's Postgres is only reachable at runtime on the private network (see
+  Deploy below).
 
 ### Prove the flow
 
@@ -99,10 +100,12 @@ pooler/direct split, no `DIRECT_URL`. The migration is committed under
 
    Keep the two Google keys separate: the browser Maps key is referrer-restricted
    and must NOT be reused for server-side geocoding.
-3. **Build** runs `npm run build` → `prisma generate && prisma migrate deploy &&
-   next build`, so the committed migration is applied to the Railway database at
-   build time. **Start**: `npm run start`.
-4. First deploy creates the `Lead` table from `prisma/migrations/*_init`.
+3. **Build** runs `npm run build` → `prisma generate && next build` (no DB
+   access). **Start** runs `npm run start` → `prisma migrate deploy && next
+   start`. The migration is applied at **startup**, not build time, because
+   `postgres.railway.internal` is only reachable at runtime on the private
+   network — running it during build fails with `P1001`.
+4. First start applies `prisma/migrations/*_init` and creates the `Lead` table.
 
 ## Configure the tenant
 

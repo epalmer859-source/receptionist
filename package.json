@@ -5,9 +5,8 @@
   "description": "Aigent OS — AI receptionist API. One brain (system prompt + capture_lead tool) behind POST /api/chat, reusable across web chat, SMS, and voice.",
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && prisma migrate deploy && next build",
-    "build:app": "prisma generate && next build",
-    "start": "next start",
+    "build": "prisma generate && next build",
+    "start": "prisma migrate deploy && next start",
     "lint": "next lint",
     "test:chat": "node scripts/test-chat.mjs",
     "postinstall": "prisma generate",
