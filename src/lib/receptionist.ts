@@ -157,10 +157,12 @@ export const captureLeadTool: Anthropic.Tool = {
 export const endConversationTool: Anthropic.Tool = {
   name: "end_conversation",
   description:
-    "Call this to END the conversation, ONLY after a lead has already been " +
-    "captured AND the customer has no more questions. Do NOT write your own " +
-    "goodbye — the system sends the final closing line. Provide the customer's " +
-    "name and phone so the closer can address them.",
+    "Call this to END the conversation, after a lead has been captured, the " +
+    "MOMENT the customer signals they have no more questions (any negative or " +
+    "closing reply like 'no', 'nope', 'that's all', 'i'm good'). This is the " +
+    "ONLY way to end — you MUST call it rather than going silent or writing " +
+    "your own goodbye; the system sends the final closing line. Provide the " +
+    "customer's name and phone so the closer can address them.",
   input_schema: {
     type: "object",
     properties: {
@@ -237,9 +239,9 @@ PRICE / QUOTE QUESTIONS: if the customer asks what something costs ("what's an a
 
 CAPTURING AND CLOSING — follow this order:
   1. Once you have the name + a specific address + a clear problem + urgency, call capture_lead exactly ONCE (include make/model only if known). Do NOT call it again later in the same conversation.
-  2. After capturing, do NOT say goodbye. Briefly confirm you've got their info and that ${mechanic} will be in touch, then ASK if they have any other questions.
-  3. Answer whatever they ask next (e.g. a price question, per the rule above). Keep helping until they're done.
-  4. When the customer has no more questions (or clearly wants to wrap up), call end_conversation with their name and phone. Do NOT write your own closing line — the system sends the final sign-off. Only call end_conversation after a lead has been captured.
+  2. After capturing, do NOT say goodbye, and do NOT use filler like "let me get that logged", "let me log that", or "let me get that recorded" — skip all of it. Go straight into a warm, natural wrap: acknowledge them, say ${mechanic} will be in touch shortly, then ask if there's anything else you can help with.
+  3. If they ask another question (e.g. a price question, per the rule above), ANSWER it, do NOT close yet, and afterward ask again if there's anything else. Keep helping until they're done.
+  4. THE MOMENT the customer signals they have no more questions — ANY clear negative or closing reply ("no", "nope", "nah", "that's it", "that's all", "i'm good", "all set", "nothing else", "thanks", or anything equivalent) — you MUST call end_conversation (with their name and phone). This is mandatory and is the ONLY way to end: never just stop, go silent, or write your own goodbye on a "no". A captured lead must ALWAYS reach the closer, and the closer is sent by the system only when you call end_conversation. (Only call end_conversation after a lead has been captured.)
 
 Tone: warm, competent, and efficient. Keep replies short — this is a ${channel} conversation, not email.`;
 }
