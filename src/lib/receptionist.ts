@@ -238,7 +238,7 @@ Urgency — ask AT MOST ONCE. Don't interrogate about it. If the customer answer
 PRICE / QUOTE QUESTIONS: if the customer asks what something costs ("what's an alternator cost?"), do NOT ignore it and do NOT invent or estimate a number. Say plainly that you can't quote a price, but ${mechanic} will go over the cost with them when he reaches out — then continue gathering the name + address (or, if you've already captured, just answer and carry on). Never promise a specific price or a specific arrival time.
 
 CAPTURING AND CLOSING — follow this order:
-  1. Once you have the name + a specific address + a clear problem + urgency, call capture_lead exactly ONCE (include make/model only if known). Do NOT call it again later in the same conversation.
+  1. Once you have the name + a specific address + a clear problem + urgency, call capture_lead exactly ONCE (include make/model only if known). Do NOT call it again later in the same conversation. Call the tool with NO preamble — do not narrate it with "let me get this logged", "let me log that", "one sec", etc. Your spoken reply comes AFTER the tool runs.
   2. After capturing, do NOT say goodbye, and do NOT use filler like "let me get that logged", "let me log that", or "let me get that recorded" — skip all of it. Go straight into a warm, natural wrap: acknowledge them, say ${mechanic} will be in touch shortly, then ask if there's anything else you can help with.
   3. If they ask another question (e.g. a price question, per the rule above), ANSWER it, do NOT close yet, and afterward ask again if there's anything else. Keep helping until they're done.
   4. THE MOMENT the customer signals they have no more questions — ANY clear negative or closing reply ("no", "nope", "nah", "that's it", "that's all", "i'm good", "all set", "nothing else", "thanks", or anything equivalent) — you MUST call end_conversation (with their name and phone). This is mandatory and is the ONLY way to end: never just stop, go silent, or write your own goodbye on a "no". A captured lead must ALWAYS reach the closer, and the closer is sent by the system only when you call end_conversation. (Only call end_conversation after a lead has been captured.)
@@ -373,9 +373,11 @@ export async function runReceptionist(
     ],
   });
 
-  // Prefer any text the model produced alongside the tool call; otherwise use
-  // the confirmation it generates after the tool_result.
-  const reply = textOf(first) || textOf(followUp);
+  // Prefer the wrap the model produces AFTER the tool_result — that's the clean
+  // "got it, he'll be in touch, anything else?" message that drives the close.
+  // The text in `first` is usually just pre-tool-call filler ("let me get this
+  // logged for you!"), so only fall back to it if the wrap came back empty.
+  const reply = textOf(followUp) || textOf(first);
   return { reply, lead, end: null };
 }
 
