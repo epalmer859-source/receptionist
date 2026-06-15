@@ -23,7 +23,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { business } from "@/config/business";
 
 /** Model used for the receptionist's reasoning. */
-const MODEL = "claude-opus-4-8";
+const MODEL = "claude-sonnet-4-6";
 
 /** A turn in the customer-facing transcript, as the dashboard renders it. */
 export type ConvoTurn = { who: "ai" | "cust"; text: string };
@@ -211,7 +211,8 @@ export async function runReceptionist(
   const first = await client.messages.create({
     model: MODEL,
     max_tokens: 1024,
-    thinking: { type: "adaptive" },
+    thinking: { type: "disabled" },
+    output_config: { effort: "low" },
     system,
     tools: [captureLeadTool],
     messages: apiMessages,
@@ -232,7 +233,8 @@ export async function runReceptionist(
   const followUp = await client.messages.create({
     model: MODEL,
     max_tokens: 1024,
-    thinking: { type: "adaptive" },
+    thinking: { type: "disabled" },
+    output_config: { effort: "low" },
     system,
     tools: [captureLeadTool],
     messages: [
