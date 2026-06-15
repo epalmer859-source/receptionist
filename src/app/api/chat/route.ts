@@ -33,6 +33,25 @@ type ChatRequest = {
   channel?: unknown;
 };
 
+/**
+ * The single, exact closing line shown after a lead is captured. Built in code
+ * (never by the model) so it's identical every time. Placeholders fall back
+ * gracefully so the line never renders "undefined"/"null" or a dangling gap:
+ *   - no name  → "All set." (no dangling comma)
+ *   - no phone → drop the " at {phone}" clause
+ *   - no mechanicName → "Our mechanic"
+ */
+function buildClosingLine(name: string | null, phone: string | null): string {
+  const mechanic = business.mechanicName?.trim() || "Our mechanic";
+  const customer = name?.trim();
+  const phoneTrimmed = phone?.trim();
+
+  const opener = customer ? `All set, ${customer}.` : "All set.";
+  const atPhone = phoneTrimmed ? ` at ${phoneTrimmed}` : "";
+
+  return `${opener} ${mechanic} will contact you${atPhone} shortly to arrange a time to come out and take a look. Thanks for reaching out.`;
+}
+
 function isChatMessage(value: unknown): value is ChatMessage {
   if (typeof value !== "object" || value === null) return false;
   const m = value as Record<string, unknown>;
@@ -92,7 +111,11 @@ export async function POST(req: NextRequest) {
       : "web";
 
   try {
-    const { reply, lead } = await runReceptionist(body.messages, channel);
+    const { reply: modelReply, lead } = await runReceptionist(
+      body.messages,
+      channel
+    );
+    let reply = modelReply;
 
     if (lead) {
       // Geocode the vehicle's current location for the map pin (best-effort).
@@ -133,6 +156,13 @@ export async function POST(req: NextRequest) {
       } catch (dbErr) {
         console.error("Lead persist failed (continuing):", dbErr);
       }
+
+      // The closer is hard-coded, not improvised by the model: once a lead is
+      // captured it ALWAYS ends with this exact line so it can't drift or be
+      // skipped. Applies to partial (needsReview) captures too — they still
+      // got captured, so they still get the same close. This replaces the
+      // model's final reply; nothing model-generated is appended after it.
+      reply = buildClosingLine(lead.name, lead.phone);
     }
 
     return NextResponse.json({ ok: true, reply, lead });
