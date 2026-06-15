@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 
 import {
   runReceptionist,
   type Channel,
   type ChatMessage,
 } from "@/lib/receptionist";
+import { prisma } from "@/lib/prisma";
+import { geocode } from "@/lib/geocode";
+import { business } from "@/config/business";
 
 /**
  * The receptionist endpoint — one brain, reused by every channel.
@@ -89,6 +93,48 @@ export async function POST(req: NextRequest) {
 
   try {
     const { reply, lead } = await runReceptionist(body.messages, channel);
+
+    if (lead) {
+      // Geocode the vehicle's current location for the map pin (best-effort).
+      const coords = await geocode(lead.address);
+      if (coords) {
+        lead.lat = coords.lat;
+        lead.lng = coords.lng;
+      }
+
+      // Persist the captured lead so it shows up live on the dashboard.
+      // Best-effort: skip when no DB is configured (e.g. local sandbox), and
+      // never let a DB failure drop the customer's reply — log and continue.
+      try {
+        if (!process.env.DATABASE_URL) {
+          throw new Error("DATABASE_URL not set — skipping lead persistence.");
+        }
+        await prisma.lead.create({
+          data: {
+            businessSlug: business.slug,
+            name: lead.name,
+            phone: lead.phone,
+            address: lead.address,
+            lat: lead.lat,
+            lng: lead.lng,
+            channel: lead.channel,
+            urgency: lead.urgency,
+            status: lead.status,
+            callback: lead.callback,
+            summary: lead.summary,
+            vehicleYear: lead.vehicleYear,
+            vehicleMake: lead.vehicleMake,
+            vehicleModel: lead.vehicleModel,
+            needsReview: lead.needsReview,
+            convo: lead.convo as unknown as Prisma.InputJsonValue,
+            createdAt: new Date(lead.createdAt),
+          },
+        });
+      } catch (dbErr) {
+        console.error("Lead persist failed (continuing):", dbErr);
+      }
+    }
+
     return NextResponse.json({ ok: true, reply, lead });
   } catch (err) {
     console.error("Receptionist call failed:", err);

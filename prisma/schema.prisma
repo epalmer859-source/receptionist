@@ -1,0 +1,47 @@
+// =============================================================================
+// Prisma schema — Aigent OS receptionist + dashboard (leads-only pass)
+// =============================================================================
+// DATABASE = Railway Postgres. Single connection string, no pooler/direct split:
+// the datasource is ONLY url = env("DATABASE_URL"). Do NOT add directUrl.
+// DATABASE_URL is provided by Railway at build/runtime; it does NOT exist in the
+// dev sandbox. Migrations are committed under prisma/migrations and applied on
+// deploy with `prisma migrate deploy` (see README).
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// A captured service lead. The shape mirrors the dashboard's lead object
+/// (AigentOS.jsx) plus the receptionist's buildLead() output.
+model Lead {
+  id           String    @id @default(cuid())
+  businessSlug String
+  name         String
+  phone        String?
+  /// The vehicle's CURRENT location (roadside, lot, driveway), NOT a home address.
+  address      String
+  lat          Float?
+  lng          Float?
+  channel      String // "web" | "sms" | "voice"
+  urgency      String // "emergency" | "soon" | "flexible"
+  status       String    @default("new") // "new" | "contacted" | "scheduled"
+  callback     String?
+  summary      String
+  vehicleYear  String?
+  vehicleMake  String?
+  vehicleModel String?
+  needsReview  Boolean   @default(false)
+  /// Transcript as the dashboard renders it: [{ who: "cust" | "ai", text }]
+  convo        Json
+  createdAt    DateTime  @default(now())
+  dismissedAt  DateTime?
+  dismissedBy  String?
+
+  @@index([businessSlug, createdAt])
+}

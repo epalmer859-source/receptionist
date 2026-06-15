@@ -38,11 +38,13 @@ export type CaptureLeadInput = {
   /** Where the vehicle is RIGHT NOW (its current location), not a home address. */
   address: string;
   vehicle_year?: string;
-  vehicle_make: string;
-  vehicle_model: string;
+  vehicle_make?: string;
+  vehicle_model?: string;
   urgency: Urgency;
   summary: string;
   callback?: string;
+  /** Set true when captured with gaps (no findable location, unknown vehicle). */
+  needs_review?: boolean;
 };
 
 /**
@@ -59,13 +61,14 @@ export type Lead = {
   lat: number | null;
   lng: number | null;
   vehicleYear: string | null;
-  vehicleMake: string;
-  vehicleModel: string;
+  vehicleMake: string | null;
+  vehicleModel: string | null;
   channel: Channel;
   urgency: Urgency;
   status: "new" | "contacted" | "scheduled";
   callback: string | null;
   summary: string;
+  needsReview: boolean;
   convo: ConvoTurn[];
   createdAt: string;
 };
@@ -104,11 +107,15 @@ export const captureLeadTool: Anthropic.Tool = {
       },
       vehicle_make: {
         type: "string",
-        description: "Vehicle make, e.g. 'Chevrolet', 'Toyota', 'Ford'.",
+        description:
+          "Vehicle make, e.g. 'Chevrolet', 'Toyota', 'Ford'. Empty if the " +
+          "customer genuinely doesn't know it.",
       },
       vehicle_model: {
         type: "string",
-        description: "Vehicle model, e.g. 'Silverado', 'Camry', 'F-150'.",
+        description:
+          "Vehicle model, e.g. 'Silverado', 'Camry', 'F-150'. Empty if the " +
+          "customer genuinely doesn't know it.",
       },
       urgency: {
         type: "string",
@@ -118,7 +125,8 @@ export const captureLeadTool: Anthropic.Tool = {
         type: "string",
         description:
           "One sentence, in your words, describing the symptoms and any key " +
-          "detail (e.g. 'no-start, stranded on the highway shoulder at night').",
+          "detail (e.g. 'no-start, stranded on the highway shoulder at night'). " +
+          "If location or vehicle is unknown, note that here too.",
       },
       callback: {
         type: "string",
@@ -126,15 +134,15 @@ export const captureLeadTool: Anthropic.Tool = {
           "When/how to reach them, e.g. 'after 3pm' or 'texts preferred'. " +
           "Empty if not given.",
       },
+      needs_review: {
+        type: "boolean",
+        description:
+          "Set true when you had to capture with a gap a human must close — " +
+          "e.g. no findable vehicle location, or an unknown make/model. " +
+          "False for a complete, dispatchable lead.",
+      },
     },
-    required: [
-      "customer_name",
-      "address",
-      "vehicle_make",
-      "vehicle_model",
-      "urgency",
-      "summary",
-    ],
+    required: ["customer_name", "address", "urgency", "summary"],
   },
 };
 
@@ -180,12 +188,16 @@ Collect, conversationally (don't interrogate, don't ask for everything at once):
   - how urgent it is
   - when's a good time to reach them (callback preference)
 
+Vehicle details: push gently for the year/make/model — if they're not sure, suggest the sticker inside the driver's door jamb or the registration. But if the customer genuinely can't give them, DON'T loop on it: capture the lead with the phone, location, and symptoms you do have, leave make/model empty, and set needs_review=true so a human can confirm the vehicle.
+
+No-location escape hatch: the location is the one thing dispatch truly needs. Ask for it, and if it's vague, try ONCE more for something findable (a cross-street, a landmark, a business name). If after about two honest attempts you still can't get a findable location, do NOT keep looping — capture what you have (name + phone + symptoms), put a note like "location unclear, customer may be stranded" in the address field, set needs_review=true, and tell the caller a human will call them right back to pin it down.
+
 Urgency rubric (mobile mechanic):
   - emergency  → stranded, roadside, unsafe, blocking traffic, or broken down away from home — especially at night or on a highway. e.g. "won't restart, dead on the shoulder of I-575."
   - soon       → won't start or undrivable but in a safe spot (driveway, home, lot); wants it handled today.
   - flexible   → drivable: routine maintenance, odd noises, soft brakes, quotes, "sometime this week."
 
-When you have name + vehicle location + vehicle make and model + a clear description of the problem + urgency, call capture_lead with the structured details, then warmly confirm that dispatch will follow up (reference their callback preference if given). Do NOT promise a specific arrival time — you capture the request; dispatch confirms timing.
+When you have enough to dispatch — name + a vehicle location + a clear description of the problem + urgency (vehicle make/model too whenever you can get them) — call capture_lead with the structured details, then warmly confirm that dispatch will follow up (reference their callback preference if given). Do NOT promise a specific arrival time — you capture the request; dispatch confirms timing.
 
 If they only want a quote or have no real issue, that's fine — capture it as flexible. Never invent a vehicle, a location, or any detail. If something's missing and they go quiet, ask once more for the single most important missing item (usually the vehicle's location, or what the car is doing).
 
@@ -208,13 +220,14 @@ export function buildLead(
     lat: null,
     lng: null,
     vehicleYear: input.vehicle_year?.trim() || null,
-    vehicleMake: input.vehicle_make,
-    vehicleModel: input.vehicle_model,
+    vehicleMake: input.vehicle_make?.trim() || null,
+    vehicleModel: input.vehicle_model?.trim() || null,
     channel,
     urgency: input.urgency,
     status: "new",
     callback: input.callback?.trim() || null,
     summary: input.summary,
+    needsReview: input.needs_review ?? false,
     convo,
     createdAt: new Date().toISOString(),
   };

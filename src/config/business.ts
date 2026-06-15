@@ -26,6 +26,9 @@ export const business = {
   /** ----- Identity ----- */
   // TODO(tenant): real business name. Do not use a placeholder in production.
   name: "TODO: Mobile mechanic business name",
+  // Stable slug used to scope leads to this tenant in the database.
+  // TODO(tenant): set a real slug (lowercase, dashed) before going live.
+  slug: "mobile-mechanic-demo",
   // TODO(tenant): the geographic area the mechanic will drive to.
   primaryServiceArea: "TODO: primary service area (e.g. the greater Austin, TX area)",
   // TODO(tenant): one-line description of the mobile mechanic service.

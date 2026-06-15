@@ -5,13 +5,18 @@
   "description": "Aigent OS — AI receptionist API. One brain (system prompt + capture_lead tool) behind POST /api/chat, reusable across web chat, SMS, and voice.",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && prisma migrate deploy && next build",
+    "build:app": "prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
-    "test:chat": "node scripts/test-chat.mjs"
+    "test:chat": "node scripts/test-chat.mjs",
+    "postinstall": "prisma generate",
+    "db:migrate:deploy": "prisma migrate deploy"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",
+    "@prisma/client": "^6.19.3",
+    "lucide-react": "^1.18.0",
     "next": "^15.5.19",
     "react": "19.0.0",
     "react-dom": "19.0.0"
@@ -20,8 +25,12 @@
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "autoprefixer": "^10.5.0",
     "eslint": "^9.18.0",
     "eslint-config-next": "^15.5.19",
+    "postcss": "^8.5.15",
+    "prisma": "^6.19.3",
+    "tailwindcss": "^3.4.19",
     "typescript": "^5.7.3"
   }
 }
