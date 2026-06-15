@@ -148,37 +148,6 @@ export const captureLeadTool: Anthropic.Tool = {
   },
 };
 
-/**
- * The `end_conversation` tool — the model calls this once the customer has no
- * more questions (AFTER a lead was captured) to signal the conversation is over.
- * The route responds by sending the single hard-coded closing line, so the
- * closer is reliable and identical but never premature or repeated.
- */
-export const endConversationTool: Anthropic.Tool = {
-  name: "end_conversation",
-  description:
-    "Call this to END the conversation, after a lead has been captured, the " +
-    "MOMENT the customer signals they have no more questions (any negative or " +
-    "closing reply like 'no', 'nope', 'that's all', 'i'm good'). This is the " +
-    "ONLY way to end — you MUST call it rather than going silent or writing " +
-    "your own goodbye; the system sends the final closing line. Provide the " +
-    "customer's name and phone so the closer can address them.",
-  input_schema: {
-    type: "object",
-    properties: {
-      customer_name: {
-        type: "string",
-        description: "The customer's name, for the closing line.",
-      },
-      phone: {
-        type: "string",
-        description: "The customer's contact number, if known. Empty if not.",
-      },
-    },
-    required: ["customer_name"],
-  },
-};
-
 /** Human-readable hours line, e.g. "Mon–Fri 7:30 AM–6:00 PM, Sat 8:00 AM–2:00 PM, Sun closed". */
 function formatHours(): string {
   const to12h = (t: string) => {
@@ -226,7 +195,11 @@ Collect, conversationally (don't interrogate, don't ask for everything at once):
 
 TWO THINGS ARE REQUIRED before you can capture a lead: the customer's NAME and a SPECIFIC, DISPATCHABLE ADDRESS. Politely insist on both — "I just need a name and an address so we can get someone out to you." The address must be somewhere the mechanic could actually drive to: a street address, or a clearly identified spot ("the Kroger on Old Hwy 5", "I-575 north at the Riverstone exit"). NOT good enough: "my house", "on the road", "a parking lot", "somewhere". If what they give isn't findable, warmly keep asking until it is — do NOT capture_lead without a real address, ever. There is no exception for this; without a findable address there is no lead.
 
-Vehicle details — stay EASYGOING: ask once for the year/make/model, and if they're not sure suggest the sticker in the driver's door jamb or the registration. But if they don't know, that's totally fine — capture without it, leave make/model empty, set needs_review=true, and DON'T nag. Never invent a vehicle.
+FINALIZE THE LOCATION: if what they give is ambiguous or self-contradictory — a street address AND "I'm near Main Street", an address mixed with a roadside/landmark spot, or two different places — do NOT just accept it. Ask ONE clarifying question to pin down the single exact spot the mechanic should drive to, then capture that one location.
+
+ALWAYS ASK ABOUT THE PROBLEM AND THE VEHICLE before capturing — do not capture the instant you have a name and an address. You must find out:
+  - WHAT'S WRONG with the vehicle (the symptoms, in their words) — this is REQUIRED; a lead with no problem description is useless.
+  - the vehicle's YEAR, MAKE, and MODEL — ask EVERY time. This is the one thing that's optional: if the customer genuinely doesn't know, that's fine — capture without it, leave make/model empty, set needs_review=true, and DON'T nag. But you must still ASK; never skip it. Suggest the sticker in the driver's door jamb or the registration if they're unsure. Never invent a vehicle.
 
 Urgency rubric (mobile mechanic):
   - emergency  → stranded, roadside, unsafe, blocking traffic, or broken down away from home — especially at night or on a highway. e.g. "won't restart, dead on the shoulder of I-575."
@@ -238,10 +211,10 @@ Urgency — ask AT MOST ONCE. Don't interrogate about it. If the customer answer
 PRICE / QUOTE QUESTIONS: if the customer asks what something costs ("what's an alternator cost?"), do NOT ignore it and do NOT invent or estimate a number. Say plainly that you can't quote a price, but ${mechanic} will go over the cost with them when he reaches out — then continue gathering the name + address (or, if you've already captured, just answer and carry on). Never promise a specific price or a specific arrival time.
 
 CAPTURING AND CLOSING — follow this order:
-  1. Once you have the name + a specific address + a clear problem + urgency, call capture_lead exactly ONCE (include make/model only if known). Do NOT call it again later in the same conversation. Call the tool with NO preamble — do not narrate it with "let me get this logged", "let me log that", "one sec", etc. Your spoken reply comes AFTER the tool runs.
+  1. Only once you have the name + a specific, finalized address + a clear description of the problem + urgency, AND you've asked about the vehicle (year/make/model), call capture_lead exactly ONCE (include make/model only if known). Do NOT call it again later in the same conversation. Call the tool with NO preamble — do not narrate it with "let me get this logged", "let me log that", "one sec", etc. Your spoken reply comes AFTER the tool runs.
   2. After capturing, do NOT say goodbye, and do NOT use filler like "let me get that logged", "let me log that", or "let me get that recorded" — skip all of it. Go straight into a warm, natural wrap: acknowledge them, say ${mechanic} will be in touch shortly, then ask if there's anything else you can help with.
-  3. If they ask another question (e.g. a price question, per the rule above), ANSWER it, do NOT close yet, and afterward ask again if there's anything else. Keep helping until they're done.
-  4. THE MOMENT the customer signals they have no more questions — ANY clear negative or closing reply ("no", "nope", "nah", "that's it", "that's all", "i'm good", "all set", "nothing else", "thanks", or anything equivalent) — you MUST call end_conversation (with their name and phone). This is mandatory and is the ONLY way to end: never just stop, go silent, or write your own goodbye on a "no". A captured lead must ALWAYS reach the closer, and the closer is sent by the system only when you call end_conversation. (Only call end_conversation after a lead has been captured.)
+  3. If they ask another question (e.g. a price question, per the rule above), ANSWER it, then ask again if there's anything else. Keep helping until they're done.
+  4. You do NOT need to do anything to end the conversation. When the customer signals they're done, the system automatically sends the final sign-off — so NEVER write your own closing/goodbye line yourself. Just keep answering until they're done.
 
 Tone: warm, competent, and efficient. Keep replies short — this is a ${channel} conversation, not email.`;
 }
@@ -275,30 +248,22 @@ export function buildLead(
   };
 }
 
-/** The customer-identifying fields the closer needs, from `end_conversation`. */
-export type ConversationEnd = { customerName: string; phone: string | null };
-
 /** The result of one receptionist turn. */
 export type ReceptionistResult = {
   /** The assistant's text reply to send back to the customer. */
   reply: string;
   /** The captured Lead, if `capture_lead` fired this turn; otherwise null. */
   lead: Lead | null;
-  /**
-   * Set when `end_conversation` fired this turn — the customer is done, so the
-   * route should send the final hard-coded closing line. Null otherwise.
-   */
-  end: ConversationEnd | null;
 };
 
 /**
  * Run one turn of the receptionist over a conversation.
  *
- * Calls Claude with the system prompt and two tools. `capture_lead` builds and
- * returns the Lead (the route persists it and the model confirms + asks if
- * there's anything else). `end_conversation` signals the customer is done, so
- * the route can send the single hard-coded closer — reliable and identical, but
- * never premature or repeated.
+ * Calls Claude with the system prompt and the `capture_lead` tool. If the model
+ * fires it, we build the Lead, feed a tool_result back, and let the model
+ * produce its confirmation ("got it — anything else?"). The conversation is
+ * CLOSED by the route in code (on a closing signal), not by the model — so the
+ * hard-coded closer never depends on the model choosing to call a tool.
  */
 export async function runReceptionist(
   messages: ChatMessage[],
@@ -307,7 +272,7 @@ export async function runReceptionist(
 ): Promise<ReceptionistResult> {
   const system = buildSystemPrompt(channel);
   const convo = toConvo(messages);
-  const tools = [captureLeadTool, endConversationTool];
+  const tools = [captureLeadTool];
 
   const apiMessages: Anthropic.MessageParam[] = messages.map((m) => ({
     role: m.role,
@@ -329,25 +294,12 @@ export async function runReceptionist(
   );
 
   if (!toolUse) {
-    return { reply: textOf(first), lead: null, end: null };
-  }
-
-  // The customer is done — hand the closer back to the route to send verbatim.
-  if (toolUse.name === "end_conversation") {
-    const input = toolUse.input as { customer_name?: string; phone?: string };
-    return {
-      reply: textOf(first),
-      lead: null,
-      end: {
-        customerName: input.customer_name ?? "",
-        phone: input.phone?.trim() || null,
-      },
-    };
+    return { reply: textOf(first), lead: null };
   }
 
   // The model captured a lead. Build it, then send a tool_result so the model
   // can confirm and ask if there's anything else (NOT a goodbye — the closer is
-  // sent later, when end_conversation fires).
+  // sent by the route in code when the customer signals they're done).
   const lead = buildLead(toolUse.input as CaptureLeadInput, channel, convo);
 
   const followUp = await client.messages.create({
@@ -378,7 +330,7 @@ export async function runReceptionist(
   // The text in `first` is usually just pre-tool-call filler ("let me get this
   // logged for you!"), so only fall back to it if the wrap came back empty.
   const reply = textOf(followUp) || textOf(first);
-  return { reply, lead, end: null };
+  return { reply, lead };
 }
 
 /** Concatenate the text blocks of a response into a single string. */
